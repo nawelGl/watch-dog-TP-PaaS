@@ -1,0 +1,10 @@
+watchdog:
+  interval-ms: 5000
+  timeout-ms: 1500
+  retries: 3
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
