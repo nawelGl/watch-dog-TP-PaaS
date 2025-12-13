@@ -14,6 +14,7 @@ public class WatchDogProperties {
     private long intervalMs;
     private long timeoutMs;
     private int retries;
+    private String healthUrl;
 
     private List<InstanceConfig> instances;
 
@@ -23,5 +24,7 @@ public class WatchDogProperties {
         private String ip;
         private String sshUser;
         private int sshPort = 22;
+        private String healthUrl;
+    
     }
 }

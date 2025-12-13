@@ -6,6 +6,10 @@ import org.springframework.stereotype.Service;
 
 import java.util.concurrent.TimeUnit;
 
+/** Rôle : faire le check technique “VM UP/DOWN” */
+
+
+
 @Slf4j
 @Service
 public class SshProbeService {

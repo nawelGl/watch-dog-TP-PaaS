@@ -10,10 +10,12 @@ watchdog:
       ip: 172.31.249.170
       sshUser: vm-operations-core
       sshPort: 22
+      healthUrl: http://172.31.249.170:8080/actuator/health
     - name: core-two
       ip: 172.31.252.225
       sshUser: vm-operational-core-2
       sshPort: 22
+      healthUrl: http://172.31.252.225:8080/actuator/health
 
 management:
   endpoints:
