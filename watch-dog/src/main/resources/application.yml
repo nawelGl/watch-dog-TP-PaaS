@@ -1,7 +1,19 @@
+server:
+  port: 8099
+
 watchdog:
   interval-ms: 5000
   timeout-ms: 1500
   retries: 3
+  instances:
+    - name: core-one
+      ip: 172.31.249.170
+      sshUser: vm-operations-core
+      sshPort: 22
+    - name: core-two
+      ip: 172.31.252.225
+      sshUser: vm-operational-core-2
+      sshPort: 22
 
 management:
   endpoints:

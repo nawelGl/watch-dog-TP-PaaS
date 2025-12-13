@@ -1,0 +1,12 @@
+se connecter a vm-operations-core-é2 : 
+ssh 'vm-operational-core-2@172.31.252.225
+mdp: toto 
+
+se connecter a vm-operations-core : 
+ssh vm-operational-core@172.31.249.170
+mdp: toto 
+
+
+se connecter a vm-watch-dog : 
+ssh 'vm-watch-dog@172.31.249.254'
+mdp: toto
