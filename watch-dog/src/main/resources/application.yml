@@ -2,9 +2,9 @@ server:
   port: 8099
 
 watchdog:
-  interval-ms: 5000
-  timeout-ms: 1500
-  retries: 3
+  interval-ms: 5000 #fréquence à laquelle le watchdog check
+  timeout-ms: 1500 #temps max pour considérer un check comme “KO”
+  retries: 3  #nombre de tentatives avant de déclarer DOWN
   instances:
     - name: core-one
       ip: 172.31.249.170

@@ -7,6 +7,15 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+
+/** Rôle : orchestrer le cycle de surveillance toutes les X millisecondes.
+ * 
+ * Il fait :
+	•	toutes les interval-ms
+	•	pour chaque instance :
+	•	appelle sshProbeService.isVmUp(...)
+	•	log [UP] ou [DOWN]
+ */
 @Slf4j
 @Component
 @RequiredArgsConstructor
