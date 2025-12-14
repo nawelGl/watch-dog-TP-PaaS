@@ -5,17 +5,22 @@ watchdog:
   interval-ms: 5000 #fréquence à laquelle le watchdog check
   timeout-ms: 1500 #temps max pour considérer un check comme “KO”
   retries: 3  #nombre de tentatives avant de déclarer DOWN
+  restart-threshold: 2 # nombre de cycle avant de redemarrer
   instances:
     - name: core-one
       ip: 172.31.249.170
       sshUser: vm-operations-core
       sshPort: 22
       healthUrl: http://172.31.249.170:8080/actuator/health
+      restartCommand: "docker restart core-operational-backend-amd64-logs"
+
     - name: core-two
       ip: 172.31.252.225
       sshUser: vm-operational-core-2
       sshPort: 22
       healthUrl: http://172.31.252.225:8080/actuator/health
+      restartCommand: "docker restart core-operational-backend-amd64-logs"
+
 
 management:
   endpoints:
