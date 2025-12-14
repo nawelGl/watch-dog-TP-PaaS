@@ -19,11 +19,13 @@ public class SshProbeService {
                           int retries) {
 
         for (int attempt = 1; attempt <= retries; attempt++) {
-            if (tryOnce(inst, timeoutMs)) {
-                return true;
+            if (tryOnce(inst, timeoutMs)) return true;
+
+            if (attempt == retries) {
+                log.warn("[SSH] {} all attempts failed ({}/{})", inst.getName(), retries, retries);
+            } else {
+                log.debug("[SSH] {} attempt {}/{} failed", inst.getName(), attempt, retries);
             }
-            log.warn("[SSH] {} attempt {}/{} failed",
-                    inst.getName(), attempt, retries);
         }
         return false;
     }

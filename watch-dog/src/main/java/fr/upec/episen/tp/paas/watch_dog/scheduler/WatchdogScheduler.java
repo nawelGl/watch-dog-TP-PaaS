@@ -4,14 +4,17 @@ import fr.upec.episen.tp.paas.watch_dog.config.WatchDogProperties;
 import fr.upec.episen.tp.paas.watch_dog.model.InstanceState;
 import fr.upec.episen.tp.paas.watch_dog.service.HttpHealthProbeService;
 import fr.upec.episen.tp.paas.watch_dog.service.SshProbeService;
+import fr.upec.episen.tp.paas.watch_dog.service.SshCommandService;
+import fr.upec.episen.tp.paas.watch_dog.util.Ansi;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import fr.upec.episen.tp.paas.watch_dog.service.SshCommandService;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
 @Component
@@ -21,16 +24,16 @@ public class WatchdogScheduler {
     private final WatchDogProperties props;
     private final SshProbeService sshProbeService;
     private final HttpHealthProbeService httpHealthProbeService;
-    private final Map<String, InstanceState> states = new ConcurrentHashMap<>();
     private final SshCommandService sshCommandService;
-    
+
+    private final Map<String, InstanceState> states = new ConcurrentHashMap<>();
 
     @Scheduled(fixedDelayString = "${watchdog.interval-ms}")
     public void checkInstances() {
 
         var instances = props.getInstances();
         if (instances == null || instances.isEmpty()) {
-            log.warn("[WATCHDOG] No instances configured");
+            log.warn("{}", Ansi.yellow("[WATCHDOG] No instances configured"));
             return;
         }
 
@@ -38,63 +41,141 @@ public class WatchdogScheduler {
 
             InstanceState state = states.computeIfAbsent(inst.getName(), k -> new InstanceState());
 
+            /* =======================
+             * 1) CHECK VM (SSH)
+             * ======================= */
             boolean vmUp = sshProbeService.isVmUp(inst, props.getTimeoutMs(), props.getRetries());
 
-            if (!vmUp) {
-                state.reset(); // important: on ne garde pas un échec service si la VM est down
-            log.error("[WATCHDOG] {} ({}@{}) : VM=DOWN (SSH failed)", inst.getName(), inst.getSshUser(), inst.getIp());                continue;
+            // INIT log (premier passage)
+            if (state.getLastVmUp() == null) {
+                log.info("[WATCHDOG] {} ({}@{}) : INIT monitoring",
+                        inst.getName(), inst.getSshUser(), inst.getIp());
             }
 
-            boolean serviceUp = httpHealthProbeService.isServiceUp(inst, props.getTimeoutMs(), props.getRetries());
+            // Transition VM UP -> DOWN
+            if (!vmUp) {
+                if (state.getLastVmUp() == null || Boolean.TRUE.equals(state.getLastVmUp())) {
+                    log.error("[WATCHDOG] {} ({}@{}) : VM={} (UP -> DOWN)",
+                            inst.getName(), inst.getSshUser(), inst.getIp(), Ansi.darkred("DOWN"));
+                }
+                state.setLastVmUp(false);
 
-            if (serviceUp) {
-                state.reset(); // service OK => on reset le compteur d'échecs consécutifs
-                log.info("[WATCHDOG] {} ({}) : VM=UP | SERVICE=UP", inst.getName(), inst.getIp());
+                // si infra down, on reset les fails service (ça n’a plus de sens)
+                state.resetFailures();
                 continue;
             }
 
-            // service DOWN
-            int failures = state.incrementAndGet();
-            int threshold = Math.max(1, props.getRestartThreshold()); // soit 1 soit le nombre d'essai de properties si il est plus grand
-            log.warn("[WATCHDOG] {} ({}) : VM=UP | SERVICE=DOWN (fail {}/{})",
-                    inst.getName(), inst.getIp(), failures, threshold);
+            // Transition VM DOWN -> UP
+            if (Boolean.FALSE.equals(state.getLastVmUp())) {
+                log.info("[WATCHDOG] {} ({}@{}) : VM={} (DOWN -> UP)",
+                        inst.getName(), inst.getSshUser(), inst.getIp(), Ansi.green("UP"));
+            }
+            state.setLastVmUp(true);
 
+            /* =======================
+             * 2) CHECK SERVICE (HTTP)
+             * ======================= */
+            boolean serviceUp = httpHealthProbeService.isServiceUp(inst, props.getTimeoutMs(), props.getRetries());
+
+            // Transition SERVICE DOWN -> UP
+            if (serviceUp) {
+                if (Boolean.FALSE.equals(state.getLastServiceUp())) {
+                    log.info("[WATCHDOG] {} ({}) : SERVICE={} (DOWN -> UP)",
+                            inst.getName(), inst.getIp(), Ansi.green("UP"));
+                }
+
+                // si tout est ok ET qu’on vient de changer, on peut log “global”
+                if (state.getLastServiceUp() == null || Boolean.FALSE.equals(state.getLastServiceUp())) {
+                    log.info("[WATCHDOG] {} ({}) : VM={} | SERVICE={}",
+                            inst.getName(), inst.getIp(), Ansi.green("UP"), Ansi.green("UP"));
+                }
+
+                state.setLastServiceUp(true);
+                state.resetFailures();
+                continue;
+            }
+
+            // Transition SERVICE UP -> DOWN
+            if (state.getLastServiceUp() == null || Boolean.TRUE.equals(state.getLastServiceUp())) {
+                log.warn("[WATCHDOG] {} ({}) : SERVICE={} (UP -> DOWN)",
+                        inst.getName(), inst.getIp(), Ansi.red("DOWN"));
+            }
+            state.setLastServiceUp(false);
+
+            /* =======================
+             * 3) SERVICE DOWN → RETRIES
+             * ======================= */
+            int failures = state.incrementAndGetFailures();
+            int threshold = Math.max(1, props.getRestartThreshold());
+
+            // On log les retries en WARN uniquement si c’est utile pour la démo
+            log.warn("[WATCHDOG] {} ({}) : VM={} | SERVICE={} (retry {}/{})",
+                    inst.getName(),
+                    inst.getIp(),
+                    Ansi.green("UP"),
+                    Ansi.yellow("DOWN"),
+                    failures,
+                    threshold);
+
+            /* =======================
+             * 4) RESTART SI SEUIL ATTEINT
+             * ======================= */
             if (failures >= threshold) {
-                log.error("[WATCHDOG] {} ({}) : SERVICE DOWN {} times -> restarting via SSH",
-                        inst.getName(), inst.getIp(), threshold);
 
-                var result = sshCommandService.run(inst, inst.getRestartCommand(), props.getTimeoutMs());
+                log.warn("[WATCHDOG] {} ({}) : ACTION={}",
+                        inst.getName(), inst.getIp(), Ansi.blue("RESTART via SSH"));
 
-                if (result.ok()) {
-                    log.info("[WATCHDOG] {} ({}) : restart command OK ({}ms) stdout='{}'",
-                            inst.getName(), inst.getIp(), result.durationMs(), result.stdout());
-                } else {
-                    log.error("[WATCHDOG] {} ({}) : restart command FAILED -> {}",
-                            inst.getName(), inst.getIp(), result.message());
-                    // Même si restart échoue, on reset pour éviter boucle agressive
-                    state.reset();
+                var result = sshCommandService.run(inst, inst.getRestartCommand(),props.getRestartTimeoutMs());
+
+                if (!result.ok()) {
+                    log.error("[WATCHDOG] {} ({}) : RESTART={} -> {}",
+                            inst.getName(), inst.getIp(), Ansi.red("FAILED"), result.message());
+                    state.resetFailures();
                     continue;
                 }
 
-                // petit délai pour laisser le service redémarrer
+                /* =======================
+                 * 5) WAIT & RECHECK HEALTH
+                 * ======================= */
+                var pr = props.getPostRestart();
+
                 try {
-                    Thread.sleep(2000);
+                    Thread.sleep(Math.max(0, pr.getInitialWaitMs()));
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 }
 
-                // re-check HTTP après relance
-                boolean serviceBack = httpHealthProbeService.isServiceUp(inst, props.getTimeoutMs(), props.getRetries());
+                long deadline = System.currentTimeMillis() + Math.max(1000, pr.getMaxWaitMs());
+                boolean serviceBack = false;
 
-                if (serviceBack) {
-                    log.info("[WATCHDOG] {} ({}) : SERVICE RECOVERED after restart",
-                            inst.getName(), inst.getIp());
-                } else {
-                    log.error("[WATCHDOG] {} ({}) : SERVICE STILL DOWN after restart",
-                            inst.getName(), inst.getIp());
+                while (System.currentTimeMillis() < deadline) {
+
+                    // 1 tentative par poll (sinon ça prend trop longtemps)
+                    serviceBack = httpHealthProbeService.isServiceUp(inst, props.getTimeoutMs(), 1);
+
+                    if (serviceBack) break;
+
+                    try {
+                        Thread.sleep(Math.max(200, pr.getPollIntervalMs()));
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
                 }
 
-                state.reset();
+                if (serviceBack) {
+                    log.info("[WATCHDOG] {} ({}) : SERVICE={}",
+                            inst.getName(), inst.getIp(), Ansi.green("RECOVERED"));
+
+                    // important : on remet lastServiceUp à true car on vient de le constater
+                    state.setLastServiceUp(true);
+
+                } else {
+                    log.error("[WATCHDOG] {} ({}) : SERVICE={}",
+                            inst.getName(), inst.getIp(), Ansi.red("STILL DOWN"));
+                }
+
+                state.resetFailures();
             }
         }
     }

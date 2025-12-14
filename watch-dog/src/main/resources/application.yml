@@ -5,7 +5,12 @@ watchdog:
   interval-ms: 5000 #fréquence à laquelle le watchdog check
   timeout-ms: 1500 #temps max pour considérer un check comme “KO”
   retries: 3  #nombre de tentatives avant de déclarer DOWN
-  restart-threshold: 2 # nombre de cycle avant de redemarrer
+  restart-threshold: 1 # nombre de cycle avant de redemarrer
+  restart-timeout-ms: 10000
+  post-restart:
+    initial-wait-ms: 2000      # délai initial juste après docker restart
+    max-wait-ms: 15000         # fenêtre totale pendant laquelle on attend que /health remonte
+    poll-interval-ms: 2000     # fréquence des re-checks /health
   instances:
     - name: core-one
       ip: 172.31.249.170
@@ -27,3 +32,8 @@ management:
     web:
       exposure:
         include: health,info
+
+spring:
+  output:
+    ansi:
+      enabled: ALWAYS

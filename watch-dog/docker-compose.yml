@@ -1,0 +1,12 @@
+version: "3.8"
+
+services:
+  watchdog:
+    image: watchdog:latest
+    container_name: watchdog
+    ports:
+      - "8099:8099"
+    volumes:
+      - ./config/application.yml:/app/config/application.yml:ro
+      - /home/vm-watch-dog/.ssh:/root/.ssh:ro
+    restart: unless-stopped

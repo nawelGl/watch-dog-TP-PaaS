@@ -1,0 +1,13 @@
+FROM eclipse-temurin:17-jre
+
+WORKDIR /app
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends openssh-client ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY target/watch-dog-0.0.1-SNAPSHOT.jar /app/app.jar
+
+EXPOSE 8099
+
+CMD ["java","-jar","/app/app.jar","--spring.config.location=classpath:/,file:/app/config/"]
